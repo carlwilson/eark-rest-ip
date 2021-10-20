@@ -88,11 +88,6 @@ def parse_command_line():
                         dest="structureFlag",
                         default=False,
                         help="run package structure tests only")
-    PARSER.add_argument('--metadata', '-m',
-                        action="store_true",
-                        dest="metadataFlag",
-                        default=False,
-                        help="run package structure tests only")
     PARSER.add_argument('--version',
                         action='version',
                         version=__version__)
@@ -119,57 +114,27 @@ def main():
     # Iterate the file arguments
     for file_arg in args.files:
         # Get the package root and find out if this is something we can validate
-        ret_stat, to_validate = _get_ip_root(file_arg)
+        ret_stat, _ = _process_ip(file_arg, args)
         # if ret_stat > 0 then this is somethign we can't handle
         if ret_stat > 0:
             sys.stderr.write(EXIT_CODES[ret_stat].format(file_arg))
             sys.stderr.write(os.linesep)
             _exit = ret_stat
             continue
-        struct_valid = False
-        if not args.metadataFlag or args.structureFlag:
-            struct_valid, struct_details = STRUCT.validate(file_arg)
-            print(struct_details)
-            if not struct_valid:
-                continue
-        if not args.structureFlag or args.metadataFlag:
-            _validate_ip(file_arg)
     print('Exiting with {}'.format(_exit))
     sys.exit(_exit)
 
-def _validate_ip(to_validate):
-    # Schematron validation profile
-    profile = MD.ValidationProfile()
-    validator = MD.MetsValidator(to_validate)
-    mets_path = os.path.join(to_validate, 'METS.xml')
-    schema_result = validator.validate_mets(mets_path)
-    # # Now grab any errors
-    # schema_errors = validator.validation_errors
-    for error in validator.validation_errors:
-        print(error)
-    if schema_result is True:
-        profile.validate(mets_path)
-        prof_results = profile.get_results()
-        print(prof_results)
-
-    return schema_result, prof_results
-
-def _get_ip_root(info_pack):
-    arch_processor = PKG.ArchivePackageHandler()
-    # This is a var for the final source to validate
+def _process_ip(info_pack, args):
     to_validate = info_pack
-
-    if not os.path.exists(info_pack):
-        # Skip files that don't exist
-        return 1, None
-    if os.path.isfile(info_pack):
-        # Check if file is a archive format
-        if not PKG.ArchivePackageHandler.is_archive(info_pack):
-            # If not we can't process so report and iterate
-            return 2, None
-        # Unpack the archive and set the source
-        to_validate = arch_processor.unpack_package(info_pack)
-    return 0, to_validate
+    try:
+        to_validate, _ = PKG.get_ip_root(info_pack)
+    except FileNotFoundError:
+        return 1, info_pack
+    except ValueError:
+        return 2, info_pack
+    is_valid, validation_report = PKG.validate(to_validate, struct_only=args.structureFlag)
+    print(validation_report)
+    return 0, validation_report
 
 # def _test_case_schema_checks():
 if __name__ == "__main__":

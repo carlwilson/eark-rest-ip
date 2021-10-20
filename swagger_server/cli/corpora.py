@@ -55,7 +55,6 @@ Maintainer: Carl Wilson (OPF), 2020"""
 
 SKIPPED_KEYWORDS = [
     'rel',
-    'integration',
     'master',
     'example',
     'doc',
@@ -209,18 +208,15 @@ class Corpora():
             case_lookup[key] = []
         # Loop through the remote branches
         for ref in repo.refs:
-            skip = False
-            for skip_word in SKIPPED_KEYWORDS:
-                if skip:
-                    break
-                print('Checking {} in {}'.format(skip_word, str(ref.name)))
-                skip = (skip_word.lower() in str(ref.name).lower()) | (skip_word == str(ref.name))
-            if skip:
+            if ref.name.replace('origin/', '') in SKIPPED_KEYWORDS:
+                skipped.append(_skipped_item(ref.name, "On skipped list."))
+                print('skipping {}'.format(ref.name))
                 continue
             # Get the test case for this ref
             test_case, message = cls.test_case_from_ref(ref)
             if test_case is None:
                 skipped.append(_skipped_item(ref.name, message))
+                print('skipping {}: {}'.format(ref.name, message))
                 continue
             try:
                 case_lookup[test_case.case_id.specification].append(test_case)
@@ -245,7 +241,7 @@ class Corpora():
         # The branch name should be 4 parts origin/<corpus>/<section>/<reqID>
         # If the path isn't 4 parts or the second element is not an recognised
         # corpus id then return nothing.
-        if len(name_parts) < 3:
+        if len(name_parts) < 3 and not ref.name.endswith('integration'):
             return None, 'Invalid branch name {} should have at least 3 parts.'.format(ref)
         # Check for a valid ID
         if not re.search(r'^{}[0-9]{{1,3}}$'.format('|'.join(SPECIFICATIONS)),
@@ -270,12 +266,8 @@ class Corpora():
 
     @classmethod
     def _get_ref_parts(cls, name):
-        name_parts = name.split('/')
-        if len(name_parts) > 3:
-            # If we have more than 3 parts just return the last 3 parts
-            return name_parts[-3:]
-        # If less than 3 parts just return the list
-        return name_parts
+        # If we have more than 3 parts just return the last 3 parts
+        return name.split('/')[-3:]
 
     @classmethod
     def test_case_from_tree_path(cls, tree, path):
@@ -285,6 +277,19 @@ class Corpora():
         try:
             # Return the test case and it's path
             _tc = TestCase.from_xml_string(test_case_blob.data_stream.read())
+            if not _tc.valid:
+                return None, 'Test case XML failed schema validation for {}. \nSchema validation error: {}'.format(str(path), _tc.description)
+            return _tc, str(path)
+        except ValueError:
+            # Bad test case XML.
+            return None, 'Badly formed test case XML in file {}.'.format(str(path))
+
+    @classmethod
+    def test_case_from_path(cls, path):
+        """Return the test case parsed from a path`."""
+        try:
+            # Return the test case and it's path
+            _tc = TestCase.from_xml_file(path)
             if not _tc.valid:
                 return None, 'Test case XML failed schema validation for {}. \nSchema validation error: {}'.format(str(path), _tc.description)
             return _tc, str(path)
@@ -397,7 +402,7 @@ def _mkdirs(_dir):
 def _init_template(name):
     template = env.get_template(name)
     template.globals['now'] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    template.globals['url_root'] = 'https://carlwilson.github.io/eark-ip-test-corpus/'
+    template.globals['url_root'] = './'
     return template
 
 def _get_test_cases(root):

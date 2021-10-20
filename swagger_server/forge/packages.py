@@ -25,12 +25,15 @@
 """
 Factory methods for the package classes.
 """
+import errno
 import os
 import tarfile
 import tempfile
 import zipfile
 
 from swagger_server.forge import manifests
+from swagger_server.forge import structure, metadata
+from swagger_server.models import PackageDetails, ValidationReport
 
 class ArchivePackageHandler():
     """Class to handle archive / compressed information packages."""
@@ -65,3 +68,25 @@ class ArchivePackageHandler():
         if zipfile.is_zipfile(to_test):
             return True
         return tarfile.is_tarfile(to_test)
+
+def get_ip_root(info_pack):
+    # This is a var for the final source to validate
+    to_validate = info_pack
+
+    if not os.path.exists(info_pack):
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), info_pack)
+    if os.path.isfile(info_pack):
+        # Check if file is a archive format
+        if not ArchivePackageHandler.is_archive(info_pack):
+            # If not we can't process
+            raise ValueError('{} must be a zip/tar archive or an XML METS file.'.format(info_pack))
+        # Unpack the archive and set the source
+        to_validate = ArchivePackageHandler().unpack_package(info_pack)
+    return to_validate, PackageDetails(name=os.path.basename(to_validate))
+
+def validate(to_validate, struct_only=False):
+    struct_valid, struct_results = structure.validate(to_validate)
+    if not struct_valid or struct_only:
+        return False, ValidationReport(structure=struct_results)
+    md_valid, md_results = metadata.validate_ip(to_validate)
+    return md_valid, ValidationReport(structure=struct_results, metadata=md_results)

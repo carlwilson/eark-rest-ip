@@ -26,7 +26,14 @@
 from enum import Enum, unique
 import os
 
-from swagger_server.models import Severity, TestResult, StructResults, StructStatus
+from swagger_server.models import (
+    Severity,
+    TestResult,
+    StructResults,
+    StructStatus,
+    Representation,
+    PackageDetails
+)
 
 METS_NAME = 'METS.xml'
 DATA = 'data'
@@ -265,6 +272,11 @@ class PackageStructTests():
             if not tests.has_metadata():
                 results.append(test_result_from_id(13, location))
         return StructResults(self.get_status(results), results)
+
+    def get_representations(self):
+        reps = []
+        for rep in self.representations.keys():
+            reps.append(Representation(name=rep))
 
     def get_root_results(self):
         results = []

@@ -34,7 +34,13 @@ from importlib_resources import files
 
 import swagger_server.forge.resources.schemas as SCHEMA
 import swagger_server.forge.resources.schematron as SCHEMATRON
-from swagger_server.models import MetadataStatus, TestResult, Severity, MetadataChecks
+from swagger_server.models import (
+    MetadataStatus,
+    TestResult,
+    Severity,
+    MetadataChecks,
+    MetadataResults
+)
 
 XLINK_NS = 'http://www.w3.org/1999/xlink'
 METS_NS = 'http://www.loc.gov/METS/'
@@ -108,7 +114,9 @@ class MetsValidator():
         if self.total_files != 0:
             self.validation_errors.append('File count yielded %d instead of 0.' % self.total_files)
 
-        return len(self.validation_errors) == 0
+        status = MetadataStatus.NOTVALID if len(self.validation_errors) else MetadataStatus.VALID
+        return status == MetadataStatus.VALID, MetadataChecks(status=status, messages=self.validation_errors)
+
 
 def _handle_rel_paths(rootpath, metspath):
     if metspath.startswith('file://./'):
@@ -224,6 +232,14 @@ class ValidationProfile():
             if self.results[section].status != MetadataStatus.VALID:
                 is_valid = False
         self.is_valid = is_valid
+        messages = []
+        status = MetadataStatus.VALID
+        for sect, result in self.results.items():
+            messages+=result.messages
+            if result.status == MetadataStatus.NOTVALID:
+                status = MetadataStatus.NOTVALID
+        return status == MetadataStatus.NOTVALID, MetadataChecks(status=status, messages=messages)
+
 
     def get_results(self):
         """Return the full set of results."""
@@ -232,3 +248,16 @@ class ValidationProfile():
     def get_result(self, name):
         """Return only the results for element name."""
         return self.results.get(name)
+
+def validate_ip(to_validate):
+    # Schematron validation profile
+    validator = MetsValidator(to_validate)
+    mets_path = os.path.join(to_validate, 'METS.xml')
+    schema_valid, schema_results = validator.validate_mets(mets_path)
+    # # Now grab any errors
+    # schema_errors = validator.validation_errors
+    schematron_results = None
+    if schema_valid:
+        profile = ValidationProfile()
+        schematron_valid, schematron_results = profile.validate(mets_path)
+    return schema_valid and schematron_valid, MetadataResults(schema_results, schematron_results)
