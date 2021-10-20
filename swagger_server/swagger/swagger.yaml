@@ -1,0 +1,750 @@
+openapi: 3.0.3
+info:
+  title: E-ARK IP Validation API
+  description: "# REST API definition for E-ARK Information package validation\nFor\
+    \ further details see [E-ARK information package validation](https://earkcsip.dilcis.eu/)."
+  contact:
+    name: Carl Wilson
+    email: carl@openpreservation.org
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+  version: "0.9"
+servers:
+- url: /
+tags:
+- name: /ips
+  description: Requests for E-ARK information packages
+- name: /ips-manifests
+  description: Requests for E-ARK information package manifest details
+- name: /profiles
+  description: Requests for E-ARK IP validation profiles
+- name: /validations
+  description: Request for information package validation
+paths:
+  /ips:
+    summary: Package Binary operations
+    description: |-
+      # E-ARK Information Package Binary Operations
+      These REST endpoints provide operations for managing Information Package Binaries including:
+      * uploading packages
+      * listing uploaded packages
+      * deleting uploaded packages
+    get:
+      tags:
+      - /ips
+      summary: Retrieve package binary details.
+      description: Retrieve a list of package binaries uploaded to the validation
+        service.
+      operationId: get_ips
+      parameters: []
+      responses:
+        "200":
+          description: A list of package binaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/upload'
+                x-content-type: application/json
+              examples:
+                packageList:
+                  value: "[\n  {\n      “uid”: “845872bf-cbf8-48e6-b495-ec6b4a63b607”\
+                    ,\n      “name”: “IP.100.XYZ”,\n  },\n  {\n      “uid”: “845872bf-cbf8-48e6-b495-ec6b4a63b609”\
+                    ,\n      “name”: “IP.101.XYZ”,\n  }\n]"
+      x-openapi-router-controller: swagger_server.controllers.ips_controller
+    post:
+      tags:
+      - /ips
+      summary: Upload package binary.
+      description: "Upload a package binary for validation, returns process identifier\
+        \ and digest."
+      operationId: post_ip
+      parameters: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ips_body'
+      responses:
+        "201":
+          description: Package successfully uploaded and queued for validation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/packageDetails'
+              examples:
+                packageDetails:
+                  value: "{\n  “uid”: “845872bf-cbf8-48e6-b495-ec6b4a63b607”,\n  “\
+                    name”: “IP.100.XYZ”,\n  “checksums”: [\n    {\n     “algorithm”\
+                    : “sha256”,\n     “value”: “e3b0c44298fc1c149afbf4...”\n    },\n\
+                    \    {\n     “algorithm”: “md5”,\n     “value”: “e3b0c44298fc1c149afbf4...”\
+                    \n    }\n  ]\n}"
+      x-openapi-router-controller: swagger_server.controllers.ips_controller
+    delete:
+      tags:
+      - /ips
+      summary: Delete information packages.
+      description: Delete all information package binaries for this user.
+      operationId: delete_ip
+      parameters: []
+      responses:
+        "202":
+          description: All information package binaries deleted for this user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/upload'
+                x-content-type: application/json
+              examples:
+                packageUids:
+                  value: "[\n  {\n      “uid”: “845872bf-cbf8-48e6-b495-ec6b4a63b607”\
+                    ,\n      “name”: “IP.100.XYZ”,\n  },\n  {\n      “uid”: “845872bf-cbf8-48e6-b495-ec6b4a63b609”\
+                    ,\n      “name”: “IP.101.XYZ”,\n  }\n]"
+      x-openapi-router-controller: swagger_server.controllers.ips_controller
+  /ips/{uid}:
+    get:
+      tags:
+      - /ips
+      summary: Get package info.
+      description: Get the properties of an information package uid.
+      operationId: get_ip_by_uid
+      parameters:
+      - name: uid
+        in: path
+        description: UUID of the package to retrieve
+        required: true
+        style: simple
+        explode: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: Full set of package properties
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/informationPackage'
+              examples:
+                package:
+                  value: "{\n  “uid”: “845872bf-cbf8-48e6-b495-ec6b4a63b609”,\n  “\
+                    name”: “IP.101.XYZ”,\n}"
+      x-openapi-router-controller: swagger_server.controllers.ips_controller
+    delete:
+      tags:
+      - /ips
+      summary: Delete IP by uid.
+      description: Delete information package binary by uid.
+      operationId: delete_ip_by_uid
+      parameters:
+      - name: uid
+        in: path
+        description: UUID of the package to delete
+        required: true
+        style: simple
+        explode: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "201":
+          description: Package deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/upload'
+              examples:
+                packageUid:
+                  value: "{\n  “uid”: “845872bf-cbf8-48e6-b495-ec6b4a63b609”,\n  “\
+                    name”: “IP.101.XYZ”,\n}"
+      x-openapi-router-controller: swagger_server.controllers.ips_controller
+  /ips/{uid}/representations:
+    get:
+      tags:
+      - /ips
+      summary: Get package representations.
+      description: Get the representations of an information package by uid.
+      operationId: get_ip_representations
+      parameters:
+      - name: uid
+        in: path
+        description: UUID of the package to retrieve
+        required: true
+        style: simple
+        explode: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: List of package representations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/representation'
+      x-openapi-router-controller: swagger_server.controllers.ips_controller
+  /ips/{uid}/manifests:
+    get:
+      tags:
+      - /ips
+      summary: Get package manifests.
+      description: Get any manifests for an information package.
+      operationId: get_ip_manifests
+      parameters:
+      - name: uid
+        in: path
+        description: UUID of the package to retrieve
+        required: true
+        style: simple
+        explode: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: List of package manifests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ipManifest'
+      x-openapi-router-controller: swagger_server.controllers.ips_controller
+  /profiles:
+    get:
+      tags:
+      - /profiles
+      summary: Retrieve validation profiles.
+      description: Retrieve a list of supported validation profiles
+      operationId: get_profiles
+      parameters: []
+      responses:
+        "200":
+          description: A list of validation profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/profileDetails'
+                x-content-type: application/json
+              examples:
+                profileList:
+                  value: "[\n  {\n      “type\": “CSIP”,\n      “name”: “E-ARK Common\
+                    \ Specification for Information Packages.”,\n      \"version\"\
+                    \ : \"2.0.4\"\n  },\n  {\n      “type\": “SIP”,\n      “name”\
+                    : “E-ARK Specification for Submission Information Packages.”,\n\
+                    \      \"version\" : \"2.0.4\"\n  },\n  {\n      “type\": “DIP”\
+                    ,\n      “name”: “E-ARK Specification for Dissemination Information\
+                    \ Packages.”,\n      \"version\" : \"2.0.4\"\n  }\n]"
+      x-openapi-router-controller: swagger_server.controllers.profiles_controller
+  /profiles/{type}/{version}:
+    get:
+      tags:
+      - /profiles
+      summary: Retrieve a validation profile.
+      description: Retrieve a validation profile by type and version
+      operationId: get_profile
+      parameters:
+      - name: type
+        in: path
+        description: The type of profile to retrieve
+        required: true
+        style: simple
+        explode: false
+        schema:
+          type: string
+      - name: version
+        in: path
+        description: The version of profile to retrieve
+        required: true
+        style: simple
+        explode: false
+        schema:
+          type: string
+      responses:
+        "200":
+          description: A list validation profiles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/profileDetails'
+              examples:
+                profile:
+                  value: "[\n  {\n      “type\": “CSIP”,\n      “name”: “E-ARK Common\
+                    \ Specification for Information Packages.”,\n      \"version\"\
+                    \ : \"2.0.4\"\n  }\n]"
+      x-openapi-router-controller: swagger_server.controllers.profiles_controller
+  /ips-manifests:
+    get:
+      tags:
+      - /ips-manifests
+      summary: Retrieve information package manifests
+      description: Retrieve a list of information package manifests from different
+        sources
+      operationId: get_manifests
+      responses:
+        "200":
+          description: A list of information package manifests
+          content:
+            application/json:
+              schema:
+                type: array
+                example: "[]"
+                items:
+                  $ref: '#/components/schemas/ipManifest'
+                x-content-type: application/json
+      x-openapi-router-controller: swagger_server.controllers.ips_manifests_controller
+  /validations:
+    get:
+      tags:
+      - /validations
+      summary: Retrieve valdiation results
+      description: Retrieves a lits of available validation results
+      operationId: get_validations
+      responses:
+        "200":
+          description: A list of validation result summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/validationReport'
+                x-content-type: application/json
+              example: "[]"
+      x-openapi-router-controller: swagger_server.controllers.validations_controller
+  /validations/{uid}:
+    get:
+      tags:
+      - /validations
+      summary: Get validation result
+      description: Retrieve a validation result by uid
+      operationId: get_validation_result
+      parameters:
+      - name: uid
+        in: path
+        description: UUID of the package to retrieve
+        required: true
+        style: simple
+        explode: false
+        schema:
+          type: string
+          format: uuid
+      responses:
+        "200":
+          description: A validation report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/validationReport'
+              examples:
+                profile:
+                  value: "{\n}"
+      x-openapi-router-controller: swagger_server.controllers.validations_controller
+  /validate:
+    post:
+      tags:
+      - /ips
+      summary: Synchronous package valdition.
+      description: Upload a package binary for validation and return validation result
+        immediately.
+      operationId: validate
+      parameters:
+      - name: sha1
+        in: header
+        description: SHA-1 hash of package to validate
+        required: false
+        style: simple
+        explode: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/validate_body'
+      responses:
+        "200":
+          description: A validation report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/validationReport'
+              examples:
+                profile:
+                  value: "{\n}"
+      x-openapi-router-controller: swagger_server.controllers.ips_controller
+components:
+  schemas:
+    upload:
+      type: object
+      properties:
+        uid:
+          type: string
+          format: uuid
+          nullable: false
+        state:
+          $ref: '#/components/schemas/packageState'
+        details:
+          $ref: '#/components/schemas/packageDetails'
+      example:
+        uid: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+        details:
+          checksums:
+          - value: value
+            algorithm: SHA1
+          - value: value
+            algorithm: SHA1
+          name: name
+        state: UPLOADED
+    packageState:
+      type: string
+      nullable: false
+      default: UPLOADED
+      enum:
+      - UPLOADED
+      - CHECKSUMMED
+      - VALIDATED
+    packageDetails:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: false
+        checksums:
+          type: array
+          items:
+            $ref: '#/components/schemas/checksum'
+      example:
+        checksums:
+        - value: value
+          algorithm: SHA1
+        - value: value
+          algorithm: SHA1
+        name: name
+    checksum:
+      type: object
+      properties:
+        algorithm:
+          $ref: '#/components/schemas/checksumAlg'
+        value:
+          type: string
+          nullable: false
+      example:
+        value: value
+        algorithm: SHA1
+    checksumAlg:
+      type: string
+      nullable: false
+      default: SHA1
+      enum:
+      - MD5
+      - SHA1
+      - SHA256
+      - SHA512
+    testResult:
+      type: object
+      properties:
+        ruleId:
+          type: string
+          nullable: false
+        location:
+          type: string
+          nullable: false
+        message:
+          type: string
+        severity:
+          $ref: '#/components/schemas/severity'
+      example:
+        severity: Info
+        location: location
+        ruleId: ruleId
+        message: message
+    profileDetails:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/ipType'
+        name:
+          type: string
+          nullable: false
+        version:
+          type: string
+          nullable: false
+      example:
+        name: name
+        type: CSIP
+        version: version
+    ipType:
+      type: string
+      nullable: false
+      default: CSIP
+      enum:
+      - CSIP
+      - SIP
+      - DIP
+    informationPackage:
+      type: object
+      properties:
+        details:
+          $ref: '#/components/schemas/packageDetails'
+        profile:
+          $ref: '#/components/schemas/profileDetails'
+        representations:
+          $ref: '#/components/schemas/representation'
+      example:
+        profile:
+          name: name
+          type: CSIP
+          version: version
+        details:
+          checksums:
+          - value: value
+            algorithm: SHA1
+          - value: value
+            algorithm: SHA1
+          name: name
+        representations:
+          name: name
+    representation:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: false
+      example:
+        name: name
+    validationReport:
+      type: object
+      properties:
+        uid:
+          type: string
+          format: uuid
+          nullable: false
+        package:
+          $ref: '#/components/schemas/informationPackage'
+        structure:
+          $ref: '#/components/schemas/structResults'
+        metadata:
+          $ref: '#/components/schemas/metadataResults'
+      example:
+        uid: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+        metadata:
+          schematronResults: null
+          schemaResults:
+            messages:
+            - null
+            - null
+            status: Unknown
+        package:
+          profile:
+            name: name
+            type: CSIP
+            version: version
+          details:
+            checksums:
+            - value: value
+              algorithm: SHA1
+            - value: value
+              algorithm: SHA1
+            name: name
+          representations:
+            name: name
+        structure:
+          messages:
+          - severity: Info
+            location: location
+            ruleId: ruleId
+            message: message
+          - severity: Info
+            location: location
+            ruleId: ruleId
+            message: message
+          status: Unknown
+    structResults:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/structStatus'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/testResult'
+      example:
+        messages:
+        - severity: Info
+          location: location
+          ruleId: ruleId
+          message: message
+        - severity: Info
+          location: location
+          ruleId: ruleId
+          message: message
+        status: Unknown
+    structStatus:
+      type: string
+      enum:
+      - Unknown
+      - NotWellFormed
+      - WellFormed
+    metadataResults:
+      type: object
+      properties:
+        schemaResults:
+          $ref: '#/components/schemas/metadataChecks'
+        schematronResults:
+          $ref: '#/components/schemas/metadataChecks'
+      example:
+        schematronResults: null
+        schemaResults:
+          messages:
+          - null
+          - null
+          status: Unknown
+    metadataChecks:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/metadataStatus'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/testResult'
+      example:
+        messages:
+        - null
+        - null
+        status: Unknown
+    metadataStatus:
+      type: string
+      enum:
+      - Unknown
+      - NotValid
+      - Valid
+    severity:
+      type: string
+      enum:
+      - Info
+      - Warn
+      - Error
+    manifestEntry:
+      type: object
+      properties:
+        path:
+          type: string
+          format: path
+          nullable: false
+        size:
+          type: integer
+          nullable: false
+          default: 0
+        checksums:
+          type: array
+          items:
+            $ref: '#/components/schemas/checksum'
+      example:
+        checksums:
+        - value: value
+          algorithm: SHA1
+        - value: value
+          algorithm: SHA1
+        path: path
+        size: 1
+    manifestSummary:
+      type: object
+      properties:
+        fileCount:
+          type: integer
+          nullable: false
+          default: 0
+        totalSize:
+          type: integer
+          nullable: false
+      example:
+        totalSize: 6
+        fileCount: 0
+    manifest:
+      type: object
+      properties:
+        source:
+          type: string
+          description: "Some class to cover different types of manifest source (archive,\
+            \ filesystem, METS)"
+          nullable: false
+        summary:
+          $ref: '#/components/schemas/manifestSummary'
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/manifestEntry'
+      example:
+        summary:
+          totalSize: 6
+          fileCount: 0
+        entries:
+        - checksums:
+          - value: value
+            algorithm: SHA1
+          - value: value
+            algorithm: SHA1
+          path: path
+          size: 1
+        - checksums:
+          - value: value
+            algorithm: SHA1
+          - value: value
+            algorithm: SHA1
+          path: path
+          size: 1
+        source: source
+    ipManifest:
+      type: object
+      properties:
+        uid:
+          type: string
+          format: uuid
+          nullable: false
+        manifest:
+          $ref: '#/components/schemas/manifest'
+      example:
+        uid: 046b6c7f-0b8a-43b9-b35d-6489e6daee91
+        manifest:
+          summary:
+            totalSize: 6
+            fileCount: 0
+          entries:
+          - checksums:
+            - value: value
+              algorithm: SHA1
+            - value: value
+              algorithm: SHA1
+            path: path
+            size: 1
+          - checksums:
+            - value: value
+              algorithm: SHA1
+            - value: value
+              algorithm: SHA1
+            path: path
+            size: 1
+          source: source
+    ips_body:
+      type: object
+      properties:
+        sha1:
+          type: string
+        fileName:
+          type: string
+          format: binary
+    validate_body:
+      type: object
+      properties:
+        sha1:
+          type: string
+        fileName:
+          type: string
+          format: binary
+
