@@ -39,7 +39,9 @@ from swagger_server.models import (
     TestResult,
     Severity,
     MetadataChecks,
-    MetadataResults
+    MetadataResults,
+    Checksum,
+    ChecksumAlg
 )
 
 XLINK_NS = 'http://www.w3.org/1999/xlink'
@@ -49,18 +51,37 @@ QUAL_METS_NS = '{{{}}}'.format(METS_NS)
 DILCIS_EXT_NS = 'https://DILCIS.eu/XML/METS/CSIPExtensionMETS'
 SCHEMATRON_NS = "{http://purl.oclc.org/dsdl/schematron}"
 SVRL_NS = "{http://purl.oclc.org/dsdl/svrl}"
+ALGS = vars(ChecksumAlg)
 
+class FileRef():
+    def __init__(self, path, size, checksum):
+        self._path = path
+        self._size = size
+        self._checksum = checksum
+
+    @property
+    def path(self):
+        return self._path
+
+    @property
+    def size(self):
+        return self._size
+
+    @property
+    def checksum(self):
+        return self._checksum
+
+    def __str__(self):
+        return '\'path\': \'{}\' \'size\': \'{}\' \'checksum\': \'{}\''.format(self.path, self.size, self.checksum)
 
 class MetsValidator():
     """Encapsulates METS schema validation."""
     def __init__(self, root):
         self.validation_errors = []
-        self.total_files = 0
         self.schema_wrapper = etree.XMLSchema(file=str(files(SCHEMA).joinpath('wrapper.xsd')))
-        self.schema_mets = etree.XMLSchema(file=str(files(SCHEMA).joinpath('mets.xsd')))
-        self.schema_dilcis = etree.XMLSchema(file=str(files(SCHEMA).joinpath('DILCISExtensionMETS.xsd')))
         self.rootpath = root
         self.subsequent_mets = []
+        self.file_refs = []
 
     def validate_mets(self, mets):
         '''
@@ -80,42 +101,69 @@ class MetsValidator():
                 # Define what to do with specific tags.
                 if event == 'end' and element.tag == _q(METS_NS, 'file'):
                     # files
-                    # self.total_files += 1
-                    element.clear()
-                    while element.getprevious() is not None:
-                        del element.getparent()[0]
+                    self.file_refs.append(_file_ref_from_ele(element))
+                    # element.clear()
+                    # while element.getprevious() is not None:
+                    #     del element.getparent()[0]
                 elif event == 'end' and \
-                    element.tag == _q(METS_NS, 'div') and \
-                    element.attrib['LABEL'].startswith('representations/'):
-                    if fnmatch.fnmatch(element.attrib['LABEL'].rsplit('/', 1)[1], '*_mig-*'):
-                        # representation mets files
-                        rep = element.attrib['LABEL'].rsplit('/', 1)[1]
-                        for child in element.getchildren():
-                            if child.tag == _q(METS_NS, 'mptr'):
-                                metspath = child.attrib[_q(XLINK_NS, 'href')]
-                                sub_mets = rep, metspath
-                                self.subsequent_mets.append(sub_mets)
-                        element.clear()
-                        while element.getprevious() is not None:
-                            del element.getparent()[0]
+                    element.tag == _q(METS_NS, 'fileGrp') and \
+                    element.attrib.get('USE', '').startswith('Representations/'):
+                    # representation mets files
+                    rep = element.attrib['USE'].rsplit('/', 1)[1]
+                    for file in element.iter(_q(METS_NS, 'file')):
+                        file_ref = _file_ref_from_ele(file)
+                        if os.path.basename(file_ref.path).casefold() == 'METS.xml'.casefold():
+                            sub_mets = rep, file_ref
+                            self.subsequent_mets.append(sub_mets)
+                        else:
+                            self.file_refs.append(file_ref)
+                    # element.clear()
+                    # while element.getprevious() is not None:
+                    #     del element.getparent()[0]
                 elif event == 'end' and element.tag == _q(METS_NS, 'dmdSec'):
-                    # dmdSec
-                    pass
+                    for ref in element.iter(_q(METS_NS, 'mdRef')):
+                        self.file_refs.append(_file_ref_from_mdref_ele(ref))
                 elif event == 'end' and element.tag == _q(METS_NS, 'amdSec'):
-                    pass
+                    for ref in element.iter(_q(METS_NS, 'mdRef')):
+                        self.file_refs.append(_file_ref_from_mdref_ele(ref))
         except etree.XMLSyntaxError as synt_err:
             self.validation_errors.append(TestResult(rule_id="METS", location=mets,
                                           message=synt_err.msg.replace(QUAL_METS_NS, "mets:"),
                                           severity=Severity.ERROR))
-        except Exception as base_err:
-            self.validation_errors.append(TestResult(rule_id="METS", location=mets,
-                                          message=str(base_err), severity=Severity.ERROR))
-
-        if self.total_files != 0:
-            self.validation_errors.append('File count yielded %d instead of 0.' % self.total_files)
+        # except Exception as base_err:
+        #     self.validation_errors.append(TestResult(rule_id="METS", location=mets,
+        #                                   message=str(base_err), severity=Severity.ERROR))
 
         status = MetadataStatus.NOTVALID if len(self.validation_errors) else MetadataStatus.VALID
         return status == MetadataStatus.VALID, MetadataChecks(status=status, messages=self.validation_errors)
+
+def _file_ref_from_ele(element):
+    algid = element.attrib.get('CHECKSUMTYPE', None)
+    chksm = element.attrib.get('CHECKSUM', None)
+    size = element.attrib.get('SIZE', None)
+    checksum = None
+    ref = None
+    for alg in ALGS:
+        if getattr(ChecksumAlg, alg) == algid:
+            checksum = Checksum(algid, chksm)
+    for child in element.getchildren():
+        if child.tag == _q(METS_NS, 'FLocat'):
+            path = child.attrib[_q(XLINK_NS, 'href')]
+            ref = FileRef(path, size, checksum)
+    return ref
+
+def _file_ref_from_mdref_ele(element):
+    algid = element.attrib.get('CHECKSUMTYPE', None)
+    chksm = element.attrib.get('CHECKSUM', None)
+    size = element.attrib.get('SIZE', None)
+    checksum = None
+    ref = None
+    for alg in ALGS:
+        if getattr(ChecksumAlg, alg) == algid:
+            checksum = Checksum(algid, chksm)
+    path = element.attrib.get(_q(XLINK_NS, 'href'), None)
+    ref = FileRef(path, size, checksum)
+    return ref
 
 
 def _handle_rel_paths(rootpath, metspath):
@@ -130,6 +178,13 @@ def _q(_ns, _v):
     return '{{{}}}{}'.format(_ns, _v)
 
 class ValidationRules():
+    REP_SKIPS = [
+        'CSIP60',
+        'CSIP97',
+        'CSIP101',
+        'CSIP113',
+        'CSIP114'
+    ]
     """Encapsulates a set of Schematron rules loaded from a single file."""
     def __init__(self, name: str, rules_path: str=None):
         """Initialise a set of validation rules from a file or name.
@@ -177,10 +232,15 @@ class ValidationRules():
             if ele.tag == SVRL_NS + 'fired-rule':
                 rule = ele
             elif ele.tag == SVRL_NS + 'failed-assert':
+                rule_id = ele.get('id', '')
+                if rule_id in self.REP_SKIPS:
+                    continue
                 severity = Severity.WARN
                 if ele.get('role') == 'ERROR':
                     severity = Severity.ERROR
                     status = MetadataStatus.NOTVALID
+                elif ele.get('role') == 'INFO':
+                    severity = Severity.INFO
                 messages.append(
                     TestResult(
                         rule_id=ele.get('id'),
@@ -214,7 +274,7 @@ class ValidationProfile():
         for section in self.SECTIONS:
             self.rulesets[section] = ValidationRules(section)
 
-    def validate(self, to_validate):
+    def validate(self, to_validate, is_root=True):
         """Validates a file against each loaded ruleset."""
         is_valid = True
         self.is_wellformed = True
@@ -238,7 +298,7 @@ class ValidationProfile():
             messages+=result.messages
             if result.status == MetadataStatus.NOTVALID:
                 status = MetadataStatus.NOTVALID
-        return status == MetadataStatus.NOTVALID, MetadataChecks(status=status, messages=messages)
+        return status != MetadataStatus.NOTVALID, MetadataChecks(status=status, messages=messages)
 
 
     def get_results(self):
@@ -251,13 +311,25 @@ class ValidationProfile():
 
 def validate_ip(to_validate):
     # Schematron validation profile
+    schema_results = {}
+    schematron_results = {}
+    package_files = {}
     validator = MetsValidator(to_validate)
     mets_path = os.path.join(to_validate, 'METS.xml')
-    schema_valid, schema_results = validator.validate_mets(mets_path)
-    # # Now grab any errors
-    # schema_errors = validator.validation_errors
-    schematron_results = None
-    if schema_valid:
-        profile = ValidationProfile()
-        schematron_valid, schematron_results = profile.validate(mets_path)
-    return schema_valid and schematron_valid, MetadataResults(schema_results, schematron_results)
+    results = validator.validate_mets(mets_path)
+    schema_results['root'] = results
+    package_files['root'] = validator.file_refs
+    for mets in validator.subsequent_mets:
+        sub_validator = MetsValidator(mets[1].path)
+        schema_results[mets[0]] = sub_validator.validate_mets(os.path.join(to_validate,
+                                                                           mets[1].path))
+        package_files[mets[0]] = sub_validator.file_refs
+    profile = ValidationProfile()
+    schematron_results['root'] = profile.validate(mets_path)
+    for name, result in schema_results.items():
+        if result[0]:
+            for mets in validator.subsequent_mets:
+                mets_path = mets[1].path
+                schematron_results[mets[0]] = profile.validate(os.path.join(to_validate, mets_path),
+                                                               False)
+    return schema_results['root'][0] and schematron_results['root'][0], MetadataResults(results[1], schematron_results)

@@ -238,7 +238,12 @@ class StructTests():
         return DIR_NAMES['META'] in self.folders
 
     def has_other_md(self):
-        return DIR_NAMES['OTHR'] in self.md_folders
+        md_folder_count = len(self.md_folders)
+        if (self.has_preservation_md):
+            md_folder_count-=1
+        if (self.has_descriptive_md):
+            md_folder_count-=1
+        return md_folder_count > 0
 
     def has_preservation_md(self):
         return DIR_NAMES['PRES'] in self.md_folders

@@ -27,14 +27,14 @@ E-ARK : Information package validation
         Command line validation application
 """
 import argparse
-from pprint import pprint
+import json
 import os.path
 import sys
 
+import swagger_server.cli.testcases as TC
+import swagger_server.cli.java_runner as JR
 import swagger_server.forge.packages as PKG
-import swagger_server.forge.structure as STRUCT
-import swagger_server.forge.metadata as MD
-from swagger_server.models import StructStatus
+from swagger_server.models import ValidationReport
 
 __version__ = "0.1.0"
 
@@ -54,7 +54,8 @@ Maintainer: Carl Wilson (OPF), 2020"""
 EXIT_CODES = {
     0: 'Execution completed successfully.',
     1: '{} is not an existing file or directory.',
-    2: '{} must be a zip/tar archive or an XML METS file.'
+    2: '{} must be a zip/tar archive or an XML METS file.',
+    3: 'Badly formed test case XML in file {}.'
 }
 
 # Create PARSER
@@ -104,27 +105,30 @@ def parse_command_line():
 
 def main():
     """Main command line application."""
-    _exit = 0
     # Get input from command line
     args = parse_command_line()
     # If no target files or folders specified then print usage and exit
     if not args.files:
         PARSER.print_help()
+    _exit = _process_test_cases(args) if args.testCase else _process_ips(args)
+    print('Exiting with {}'.format(_exit))
+    sys.exit(_exit)
 
+def _process_ips(args):
     # Iterate the file arguments
+    _exit = 0
     for file_arg in args.files:
         # Get the package root and find out if this is something we can validate
-        ret_stat, _ = _process_ip(file_arg, args)
+        ret_stat, _ = _process_ip(file_arg, args.structureFlag)
         # if ret_stat > 0 then this is somethign we can't handle
         if ret_stat > 0:
             sys.stderr.write(EXIT_CODES[ret_stat].format(file_arg))
             sys.stderr.write(os.linesep)
             _exit = ret_stat
             continue
-    print('Exiting with {}'.format(_exit))
-    sys.exit(_exit)
+    return _exit
 
-def _process_ip(info_pack, args):
+def _process_ip(info_pack, struct_only):
     to_validate = info_pack
     try:
         to_validate, _ = PKG.get_ip_root(info_pack)
@@ -132,9 +136,56 @@ def _process_ip(info_pack, args):
         return 1, info_pack
     except ValueError:
         return 2, info_pack
-    is_valid, validation_report = PKG.validate(to_validate, struct_only=args.structureFlag)
+    is_valid, validation_report = PKG.validate(to_validate, struct_only=struct_only)
+    ret_code, file_name, stderr = JR.java_runner(to_validate)
+    print('ret: {}, stdout: {}'.format(ret_code, file_name))
+    if ret_code == 0:
+        f = open(file_name, 'r')
+        contents = f.read()
+        f.close()
+        os.remove(file_name)
+
+        rep = ValidationReport(**json.loads(contents))
+        print(rep)
+    else:
+        print('')
+        print('ERROR')
+        print(stderr)
+        print('')
     print(validation_report)
-    return 0, validation_report
+    return 0, None
+
+def _process_test_cases(args):
+    # Iterate the file arguments
+    _exit = 0
+    for file_arg in args.files:
+        # Get the package root and find out if this is something we can validate
+        ret_stat, path = _process_test_case(file_arg)
+        # if ret_stat > 0 then this is somethign we can't handle
+        if ret_stat > 0:
+            sys.stderr.write(EXIT_CODES[ret_stat].format(path))
+            sys.stderr.write(os.linesep)
+            _exit = ret_stat
+            continue
+    return _exit
+
+def _process_test_case(case_path):
+    test_case = None
+    try:
+        test_case = TC.TestCase.from_path(case_path)
+    except FileNotFoundError:
+        return 1, case_path
+    except ValueError:
+        return 3, case_path
+    print(test_case)
+    for rule in test_case.rules:
+        for package in rule.packages:
+            ret_stat, validation_report = _process_ip(package.resolve_path(case_path),
+                                                      struct_only=test_case.is_struct)
+            if ret_stat > 0:
+                return ret_stat, validation_report
+    return 0, case_path
+
 
 # def _test_case_schema_checks():
 if __name__ == "__main__":

@@ -26,7 +26,8 @@
 E-ARK : Information package validation
         E-ARK Test Case processing
 """
-import os.path
+import errno
+import os
 
 import lxml.etree as ET
 
@@ -61,6 +62,14 @@ class TestCase():
     def case_id(self):
         """Return the test case id instance."""
         return self._case_id
+
+    @property
+    def id(self):
+        return self.case_id._requirement_id
+
+    @property
+    def is_struct(self):
+        return self.id.startswith('CSIPSTR')
 
     @property
     def valid(self):
@@ -349,11 +358,10 @@ class TestCase():
 
             def resolve_path(self, case_root):
                 """Resolve the path to the corpus package given the test case root."""
-                print('Resolving: {}'.format(self.path))
                 if self.path:
+                    self._path = os.path.join(case_root, self.path)
+                else:
                     self._path = os.path.join(case_root, self.name)
-                    if not self.exists:
-                        self._path = os.path.join(case_root, self.path)
                 return self.path
 
             @property
@@ -427,6 +435,18 @@ class TestCase():
                     elif child.tag == 'description':
                         description = child.text
                 return cls(name, path, is_valid, is_implemented, description)
+
+    @classmethod
+    def from_path(cls, tc_path):
+        test_case_path = tc_path
+        """Create a test case from a path."""
+        if not os.path.exists(tc_path):
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), tc_path)
+        if os.path.isdir(tc_path):
+            test_case_path = os.path.join(tc_path, DEFAULT_NAME)
+        if not os.path.exists(test_case_path):
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), test_case_path)
+        return cls.from_xml_file(test_case_path)
 
     @classmethod
     def from_xml_string(cls, xml, schema=TC_SCHEMA):

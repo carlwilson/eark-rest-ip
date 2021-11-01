@@ -39,6 +39,7 @@ from git import Repo
 from jinja2 import Environment, PackageLoader
 
 from swagger_server.cli.testcases import TestCase, DEFAULT_NAME, GitTestCase
+from swagger_server.cli.app import _process_test_case
 from swagger_server.forge.specification import SPECIFICATIONS
 __version__ = "0.1.0"
 
@@ -487,18 +488,22 @@ def main():
     if not args.files:
         PARSER.print_help()
 
-    for file_arg in args.files:
-        git_corpus = Corpora.from_git_repo(file_arg)
-        for key in SPECIFICATIONS:
-            corpus = git_corpus.corpora[key]
-            if corpus:
-                for case in corpus.cases:
-                    case_html(os.path.join('results', key), case)
-                corpus_html(os.path.join('results', key), corpus, SPECIFICATIONS[key])
+    # for file_arg in args.files:
+    #     git_corpus = Corpora.from_git_repo(file_arg)
+    #     for key in SPECIFICATIONS:
+    #         corpus = git_corpus.corpora[key]
+    #         if corpus:
+    #             for case in corpus.cases:
+    #                 case_html(os.path.join('results', key), case)
+    #             corpus_html(os.path.join('results', key), corpus, SPECIFICATIONS[key])
 
-    app_html('results', SPECIFICATIONS, git_corpus.corpora)
-    skipped_html(os.path.join('results', 'skipped'), git_corpus.skipped)
-    sys.exit(_exit)
+    for file_arg in args.files:
+        cases = _get_test_cases(file_arg)
+        for case in cases:
+            _process_test_case(case)
+    # app_html('results', SPECIFICATIONS, git_corpus.corpora)
+    # skipped_html(os.path.join('results', 'skipped'), git_corpus.skipped)
+    # sys.exit(_exit)
 
 if __name__ == "__main__":
     main()
