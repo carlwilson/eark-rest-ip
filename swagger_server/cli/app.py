@@ -119,7 +119,7 @@ def _process_ips(args):
     _exit = 0
     for file_arg in args.files:
         # Get the package root and find out if this is something we can validate
-        ret_stat, _ = _process_ip(file_arg, args.structureFlag)
+        ret_stat, _ = _process_ip(file_arg, not args.structureFlag)
         # if ret_stat > 0 then this is somethign we can't handle
         if ret_stat > 0:
             sys.stderr.write(EXIT_CODES[ret_stat].format(file_arg))
@@ -128,32 +128,42 @@ def _process_ips(args):
             continue
     return _exit
 
-def _process_ip(info_pack, struct_only):
-    to_validate = info_pack
+def _process_ip(info_pack, metadata):
+    print('')
+    print('INFOPACK: {}'.format(info_pack))
+    java_ret_code, java_report = _java_validate_ip(info_pack)
+    py_ret_code, py_report = _python_valid_ip(info_pack, metadata)
+    return py_ret_code, py_report
+
+def _python_valid_ip(info_pack, metadata):
+    print('Python Results:')
     try:
-        to_validate, _ = PKG.get_ip_root(info_pack)
+        validator = PKG.PackageValidator(info_pack, metadata)
+        print(validator.validation_report)
+        print('')
+        return 0, validator.validation_report
     except FileNotFoundError:
         return 1, info_pack
     except ValueError:
         return 2, info_pack
-    is_valid, validation_report = PKG.validate(to_validate, struct_only=struct_only)
-    ret_code, file_name, stderr = JR.java_runner(to_validate)
-    print('ret: {}, stdout: {}'.format(ret_code, file_name))
-    if ret_code == 0:
-        f = open(file_name, 'r')
-        contents = f.read()
-        f.close()
-        os.remove(file_name)
+    return -1, info_pack
 
-        rep = ValidationReport(**json.loads(contents))
-        print(rep)
+def _java_validate_ip(info_pack):
+    ret_code, file_name, stderr = JR.java_runner(info_pack)
+    print('Java Results:')
+    print('   ret: {}, stdout: {}'.format(ret_code, file_name))
+    validation_report = None
+    if ret_code == 0:
+        with open(file_name, 'r', encoding="utf-8") as _f:
+            contents = _f.read()
+        os.remove(file_name)
+        validation_report = ValidationReport(**json.loads(contents))
+        print(validation_report)
     else:
-        print('')
-        print('ERROR')
+        print('  ERROR =========')
         print(stderr)
-        print('')
-    print(validation_report)
-    return 0, None
+    print('')
+    return ret_code, validation_report
 
 def _process_test_cases(args):
     # Iterate the file arguments
@@ -177,13 +187,14 @@ def _process_test_case(case_path):
         return 1, case_path
     except ValueError:
         return 3, case_path
-    print(test_case)
+    print('')
+    print('TEST CASE: {}'.format(test_case))
     for rule in test_case.rules:
+        print('    RULE: {}'.format(rule))
         for package in rule.packages:
+            print('        PACKAGE: {}'.format(package))
             ret_stat, validation_report = _process_ip(package.resolve_path(case_path),
-                                                      struct_only=test_case.is_struct)
-            if ret_stat > 0:
-                return ret_stat, validation_report
+                                                      metadata= (not test_case.is_struct))
     return 0, case_path
 
 

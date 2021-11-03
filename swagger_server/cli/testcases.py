@@ -65,10 +65,12 @@ class TestCase():
 
     @property
     def id(self):
+        """Return the ID of the requirement."""
         return self.case_id._requirement_id
 
     @property
     def is_struct(self):
+        """Return True if requirment ID starts with structure prefix CSIPSTR."""
         return self.id.startswith('CSIPSTR')
 
     @property
@@ -334,7 +336,8 @@ class TestCase():
 
         class Package():
             """docstring for Package."""
-            def __init__(self, name, path, is_valid, is_implemented, description, validation_report=None):
+            def __init__(self, name, path, is_valid, is_implemented, description,
+                         validation_report=None):
                 self._name = name
                 self._path = path
                 self._is_valid = is_valid
@@ -439,14 +442,19 @@ class TestCase():
     @classmethod
     def from_path(cls, tc_path):
         test_case_path = tc_path
-        """Create a test case from a path."""
+        """Load a test case from a path."""
         if not os.path.exists(tc_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), tc_path)
         if os.path.isdir(tc_path):
             test_case_path = os.path.join(tc_path, DEFAULT_NAME)
         if not os.path.exists(test_case_path):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), test_case_path)
-        return cls.from_xml_file(test_case_path)
+        test_case = cls.from_xml_file(test_case_path)
+        if not test_case.case_id:
+            raise ValueError('Failed to load test case'
+                             'from file: {}, error: {}'.format(test_case_path,
+                                                               test_case.description))
+        return test_case
 
     @classmethod
     def from_xml_string(cls, xml, schema=TC_SCHEMA):

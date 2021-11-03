@@ -215,6 +215,7 @@ def _test_severity(base, to_test):
     return to_test == Severity.ERROR
 
 class StructTests():
+    """Encapsulates the set of tests carried out on folder structure."""
     def __init__(self, dir_to_scan):
         self.folders, self.files = _folders_and_files(dir_to_scan)
         if DIR_NAMES['META'] in self.folders:
@@ -223,42 +224,53 @@ class StructTests():
             self.md_folders = set()
 
     def has_data(self):
+        """Returns True if the package/representation has a structure folder."""
         return DIR_NAMES['DATA'] in self.folders
 
     def has_descriptive_md(self):
+        """Returns True if the package/representation has a descriptive metadata folder."""
         return DIR_NAMES['DESC'] in self.md_folders
 
     def has_documentation(self):
+        """Returns True if the package/representation has a documentation folder."""
         return DIR_NAMES['DOCS'] in self.folders
 
     def has_mets(self):
+        """Returns True if the package/representation has a root METS.xml file."""
         return METS_NAME in self.files
 
     def has_metadata(self):
+        """Returns True if the package/representation has a metadata folder."""
         return DIR_NAMES['META'] in self.folders
 
     def has_other_md(self):
+        """Returns True if the package/representation has extra metadata folders
+        after preservation and descriptive."""
         md_folder_count = len(self.md_folders)
-        if (self.has_preservation_md):
+        if self.has_preservation_md():
             md_folder_count-=1
-        if (self.has_descriptive_md):
+        if self.has_descriptive_md():
             md_folder_count-=1
         return md_folder_count > 0
 
     def has_preservation_md(self):
+        """Returns True if the package/representation has a preservation metadata folder."""
         return DIR_NAMES['PRES'] in self.md_folders
 
     def has_representations(self):
+        """Returns True if the package/representation has a representations folder."""
         return DIR_NAMES['REPS'] in self.folders
 
     def has_schemas(self):
+        """Returns True if the package/representation has a schemas folder."""
         return DIR_NAMES['SCHM'] in self.folders
 
 class PackageStructTests():
-    def __init__(self, dir_to_scan):
+    def __init__(self, dir_to_scan, is_archive=False):
         self.name = os.path.basename(dir_to_scan)
         self.struct_tests = StructTests(dir_to_scan)
         self.representations = {}
+        self.is_archive = is_archive
         _reps = os.path.join(dir_to_scan, DIR_NAMES['REPS'])
         if os.path.isdir(_reps):
             for entry in  os.listdir(_reps):
@@ -282,9 +294,12 @@ class PackageStructTests():
         reps = []
         for rep in self.representations.keys():
             reps.append(Representation(name=rep))
+        return reps
 
     def get_root_results(self):
         results = []
+        if not self.is_archive:
+            results.append(test_result_from_id(3, self.name))
         if not self.struct_tests.has_mets():
             results.append(test_result_from_id(4, self.name))
         if not self.struct_tests.has_metadata():
@@ -293,7 +308,7 @@ class PackageStructTests():
             results.append(test_result_from_id(6, self.name))
         if not self.struct_tests.has_descriptive_md():
             results.append(test_result_from_id(7, self.name))
-        if self.struct_tests.has_other_md():
+        if not self.struct_tests.has_other_md():
             results.append(test_result_from_id(8, self.name))
         if not self.struct_tests.has_representations():
             results.append(test_result_from_id(9, self.name))
@@ -338,6 +353,10 @@ def _folders_and_files(dir_to_scan):
                 folders.add(entry)
     return folders, files
 
-def validate(to_validate):
-    struct_tests = PackageStructTests(to_validate).get_test_results()
+def get_multi_root_results(name):
+    results = [ test_result_from_id(4, name) ]
+    return StructResults(StructStatus.NOTWELLFORMED, results)
+
+def validate(to_validate, is_archive=False):
+    struct_tests = PackageStructTests(to_validate, is_archive).get_test_results()
     return struct_tests.status == StructStatus.WELLFORMED, struct_tests

@@ -27,13 +27,15 @@ Factory methods for the package classes.
 """
 import errno
 import os
+from pathlib import Path
 import tarfile
 import tempfile
 import zipfile
+import uuid
 
 from swagger_server.forge import manifests
 from swagger_server.forge import structure, metadata
-from swagger_server.models import PackageDetails, ValidationReport
+from swagger_server.models import PackageDetails, ValidationReport, InformationPackage
 
 class ArchivePackageHandler():
     """Class to handle archive / compressed information packages."""
@@ -54,39 +56,108 @@ class ArchivePackageHandler():
         sha1 = manifests.Checksums.from_file(to_unpack)
         dest_root = dest if dest else self.unpack_root
         destination = os.path.join(dest_root, sha1.value)
+        self._unpack(to_unpack, destination)
+
+        children = []
+        for path in Path(destination).iterdir():
+            children.append(path)
+        if len(children) != 1:
+            # Dir unpacks to more than a single folder
+            raise ValidationError('Unpacking archive yields'
+                                  '{} children.'.format(len(children)))
+        if not os.path.isdir(children[0]):
+            raise ValidationError('Unpacking archive yields'
+                                  'a single file child {}.'.format(children[0]))
+        return children[0]
+
+    @staticmethod
+    def _unpack(to_unpack, destination):
         if zipfile.is_zipfile(to_unpack):
             with zipfile.ZipFile(to_unpack) as zip_ip:
                 zip_ip.extractall(path=destination)
         elif tarfile.is_tarfile(to_unpack):
             with tarfile.open(to_unpack) as tar_ip:
                 tar_ip.extractall(path=destination)
-        return destination
 
     @staticmethod
     def is_archive(to_test):
         """Return True if the file is a recognised archive type, False otherwise."""
-        if zipfile.is_zipfile(to_test):
-            return True
-        return tarfile.is_tarfile(to_test)
+        if os.path.isfile(to_test):
+            if zipfile.is_zipfile(to_test):
+                return True
+            return tarfile.is_tarfile(to_test)
+        return False
 
-def get_ip_root(info_pack):
-    # This is a var for the final source to validate
-    to_validate = info_pack
+def validate(to_validate, check_metadata=True, is_archive=False):
+    """Returns the validation report that results from validating the path
+    to_validate as a folder. The method does not validate archive files."""
+    struct_valid, struct_results = structure.validate(to_validate, is_archive)
+    if not struct_valid or not check_metadata:
+        package = _get_info_pack(name=os.path.basename(to_validate))
+        return ValidationReport(uid=uuid.uuid4(), package=package, structure=struct_results)
+    prof_details, md_results = metadata.validate_ip(to_validate)
+    package = _get_info_pack(name=os.path.basename(to_validate), profile=prof_details)
+    return ValidationReport(uid=uuid.uuid4(), package=package, structure=struct_results,
+                            metadata=md_results)
 
-    if not os.path.exists(info_pack):
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), info_pack)
-    if os.path.isfile(info_pack):
-        # Check if file is a archive format
-        if not ArchivePackageHandler.is_archive(info_pack):
-            # If not we can't process
-            raise ValueError('{} must be a zip/tar archive or an XML METS file.'.format(info_pack))
-        # Unpack the archive and set the source
-        to_validate = ArchivePackageHandler().unpack_package(info_pack)
-    return to_validate, PackageDetails(name=os.path.basename(to_validate))
+class ValidationError(Exception):
+    """Exception used to mark validation error when unpacking archive."""
 
-def validate(to_validate, struct_only=False):
-    struct_valid, struct_results = structure.validate(to_validate)
-    if not struct_valid or struct_only:
-        return False, ValidationReport(structure=struct_results)
-    md_valid, md_results = metadata.validate_ip(to_validate)
-    return md_valid, ValidationReport(structure=struct_results, metadata=md_results)
+class PackageValidator():
+    """Class for performing full package validation."""
+    _archive_handler = ArchivePackageHandler()
+    def __init__(self, package_path, check_metadata=True):
+        if not os.path.exists(package_path):
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), package_path)
+        self._orig_path = Path(package_path)
+        self._name = os.path.basename(package_path)
+        self._report = None
+        self._is_archive = False
+        if os.path.isdir(package_path):
+            # If a directory
+            self._to_proc = self._orig_path.absolute()
+        elif ArchivePackageHandler.is_archive(package_path):
+            self._is_archive = True
+            try:
+                self._to_proc = Path(self._archive_handler.unpack_package(package_path)).absolute()
+            except ValidationError:
+                self._report = _report_from_unpack_except(self.name, package_path)
+                return
+        elif self._name == 'METS.xml':
+            mets_path = Path(package_path)
+            self._to_proc = mets_path.parent.absolute()
+            self._name = os.path.basename(self._to_proc)
+        else:
+            # If not an archive we can't process
+            raise ValueError('{} must be a zip/tar archive'
+                             'or an XML METS file.'.format(package_path))
+        self._report = validate(self._to_proc, check_metadata, self.is_archive)
+
+    @property
+    def original_path(self):
+        """Returns the original parsed path."""
+        return self._orig_path
+
+    @property
+    def is_archive(self):
+        """Returns the original parsed path."""
+        return self._is_archive
+
+    @property
+    def name(self):
+        """Returns the package name."""
+        return self._name
+
+    @property
+    def validation_report(self):
+        """Returns the valdiation report for the package."""
+        return self._report
+
+def _report_from_unpack_except(name, package_path):
+    struct_results = structure.get_multi_root_results(package_path)
+    package = _get_info_pack(name)
+    return ValidationReport(uid=uuid.uuid4(), package=package, structure=struct_results)
+
+def _get_info_pack(name, profile=None):
+    pkg_dets =  PackageDetails(name=name)
+    return InformationPackage(details=pkg_dets, profile=profile)

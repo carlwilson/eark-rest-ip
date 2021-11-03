@@ -41,7 +41,8 @@ from swagger_server.models import (
     MetadataChecks,
     MetadataResults,
     Checksum,
-    ChecksumAlg
+    ChecksumAlg,
+    ProfileDetails
 )
 
 XLINK_NS = 'http://www.w3.org/1999/xlink'
@@ -54,6 +55,7 @@ SVRL_NS = "{http://purl.oclc.org/dsdl/svrl}"
 ALGS = vars(ChecksumAlg)
 
 class FileRef():
+    """Encapsulate the file reference and integrity details found in METS references."""
     def __init__(self, path, size, checksum):
         self._path = path
         self._size = size
@@ -61,18 +63,24 @@ class FileRef():
 
     @property
     def path(self):
+        """Return the path of the file reference, will be relative to
+        package/representation."""
         return self._path
 
     @property
     def size(self):
+        """Return the stated size of the file in bytes."""
         return self._size
 
     @property
     def checksum(self):
+        """Return the recorded Checksum of the file, includes algorithm and value."""
         return self._checksum
 
     def __str__(self):
-        return '\'path\': \'{}\' \'size\': \'{}\' \'checksum\': \'{}\''.format(self.path, self.size, self.checksum)
+        return '\'path\': \'{}\' \'size\': \'{}\' \'checksum\': \'{}\''.format(self.path,
+                                                                               self.size,
+                                                                               self.checksum)
 
 class MetsValidator():
     """Encapsulates METS schema validation."""
@@ -134,8 +142,9 @@ class MetsValidator():
         #     self.validation_errors.append(TestResult(rule_id="METS", location=mets,
         #                                   message=str(base_err), severity=Severity.ERROR))
 
-        status = MetadataStatus.NOTVALID if len(self.validation_errors) else MetadataStatus.VALID
-        return status == MetadataStatus.VALID, MetadataChecks(status=status, messages=self.validation_errors)
+        status = MetadataStatus.NOTVALID if self.validation_errors else MetadataStatus.VALID
+        return status == MetadataStatus.VALID, MetadataChecks(status=status,
+                                                              messages=self.validation_errors)
 
 def _file_ref_from_ele(element):
     algid = element.attrib.get('CHECKSUMTYPE', None)
@@ -178,6 +187,7 @@ def _q(_ns, _v):
     return '{{{}}}{}'.format(_ns, _v)
 
 class ValidationRules():
+    """Encapsulates a set of Schematron rules loaded from a single file."""
     REP_SKIPS = [
         'CSIP60',
         'CSIP97',
@@ -185,7 +195,6 @@ class ValidationRules():
         'CSIP113',
         'CSIP114'
     ]
-    """Encapsulates a set of Schematron rules loaded from a single file."""
     def __init__(self, name: str, rules_path: str=None):
         """Initialise a set of validation rules from a file or name.
 
@@ -268,7 +277,6 @@ class ValidationProfile():
     def __init__(self):
         self.rulesets = {}
         self.is_valid = False
-        self.is_wellformed = False
         self.results = {}
         self.messages = []
         for section in self.SECTIONS:
@@ -277,29 +285,31 @@ class ValidationProfile():
     def validate(self, to_validate, is_root=True):
         """Validates a file against each loaded ruleset."""
         is_valid = True
-        self.is_wellformed = True
         self.results = {}
         self.messages = []
         for section in self.SECTIONS:
             try:
                 self.rulesets[section].validate(to_validate)
             except etree.XMLSyntaxError as parse_err:
-                self.is_wellformed = False
                 self.is_valid = False
                 self.messages.append(parse_err.msg)
-                return
+                continue
             self.results[section] = self.rulesets[section].get_report()
             if self.results[section].status != MetadataStatus.VALID:
                 is_valid = False
         self.is_valid = is_valid
         messages = []
         status = MetadataStatus.VALID
-        for sect, result in self.results.items():
+        for _, result in self.results.items():
             messages+=result.messages
             if result.status == MetadataStatus.NOTVALID:
                 status = MetadataStatus.NOTVALID
         return status != MetadataStatus.NOTVALID, MetadataChecks(status=status, messages=messages)
 
+    def get_details(self):
+        """Return the valiation profile details."""
+        return ProfileDetails(name='E-ARK Specification for Information Packages',
+                              type='SIP', version='2.0.4')
 
     def get_results(self):
         """Return the full set of results."""
@@ -326,10 +336,10 @@ def validate_ip(to_validate):
         package_files[mets[0]] = sub_validator.file_refs
     profile = ValidationProfile()
     schematron_results['root'] = profile.validate(mets_path)
-    for name, result in schema_results.items():
+    for _, result in schema_results.items():
         if result[0]:
             for mets in validator.subsequent_mets:
                 mets_path = mets[1].path
                 schematron_results[mets[0]] = profile.validate(os.path.join(to_validate, mets_path),
                                                                False)
-    return schema_results['root'][0] and schematron_results['root'][0], MetadataResults(results[1], schematron_results)
+    return profile.get_details(), MetadataResults(results[1], schematron_results)

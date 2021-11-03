@@ -39,7 +39,7 @@ from git import Repo
 from jinja2 import Environment, PackageLoader
 
 from swagger_server.cli.testcases import TestCase, DEFAULT_NAME, GitTestCase
-from swagger_server.cli.app import _process_test_case
+from swagger_server.cli.app import _process_test_case, EXIT_CODES
 from swagger_server.forge.specification import SPECIFICATIONS
 __version__ = "0.1.0"
 
@@ -500,10 +500,15 @@ def main():
     for file_arg in args.files:
         cases = _get_test_cases(file_arg)
         for case in cases:
-            _process_test_case(case)
+            ret_stat, path = _process_test_case(case)
+            if ret_stat > 0:
+                sys.stderr.write(EXIT_CODES[ret_stat].format(path))
+                sys.stderr.write(os.linesep)
+                _exit = ret_stat
+                continue
     # app_html('results', SPECIFICATIONS, git_corpus.corpora)
     # skipped_html(os.path.join('results', 'skipped'), git_corpus.skipped)
-    # sys.exit(_exit)
+    sys.exit(_exit)
 
 if __name__ == "__main__":
     main()
