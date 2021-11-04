@@ -25,7 +25,6 @@
 """
 Factory methods for the package classes.
 """
-import errno
 import os
 from pathlib import Path
 import tarfile
@@ -107,10 +106,11 @@ class PackageValidator():
     """Class for performing full package validation."""
     _archive_handler = ArchivePackageHandler()
     def __init__(self, package_path, check_metadata=True):
-        if not os.path.exists(package_path):
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), package_path)
         self._orig_path = Path(package_path)
         self._name = os.path.basename(package_path)
+        if not os.path.exists(package_path):
+            self._report = _report_from_bad_path(self.name, package_path)
+            return
         self._report = None
         self._is_archive = False
         if os.path.isdir(package_path):
@@ -129,8 +129,8 @@ class PackageValidator():
             self._name = os.path.basename(self._to_proc)
         else:
             # If not an archive we can't process
-            raise ValueError('{} must be a zip/tar archive'
-                             'or an XML METS file.'.format(package_path))
+            self._report = _report_from_bad_path(self.name, package_path)
+            return
         self._report = validate(self._to_proc, check_metadata, self.is_archive)
 
     @property
@@ -155,6 +155,11 @@ class PackageValidator():
 
 def _report_from_unpack_except(name, package_path):
     struct_results = structure.get_multi_root_results(package_path)
+    package = _get_info_pack(name)
+    return ValidationReport(uid=uuid.uuid4(), package=package, structure=struct_results)
+
+def _report_from_bad_path(name, package_path):
+    struct_results = structure.get_bad_path_results(package_path)
     package = _get_info_pack(name)
     return ValidationReport(uid=uuid.uuid4(), package=package, structure=struct_results)
 

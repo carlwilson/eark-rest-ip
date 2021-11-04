@@ -88,7 +88,7 @@ class MetsValidator():
         self.validation_errors = []
         self.schema_wrapper = etree.XMLSchema(file=str(files(SCHEMA).joinpath('wrapper.xsd')))
         self.rootpath = root
-        self.subsequent_mets = []
+        self.represent_mets = {}
         self.file_refs = []
 
     def validate_mets(self, mets):
@@ -121,8 +121,7 @@ class MetsValidator():
                     for file in element.iter(_q(METS_NS, 'file')):
                         file_ref = _file_ref_from_ele(file)
                         if os.path.basename(file_ref.path).casefold() == 'METS.xml'.casefold():
-                            sub_mets = rep, file_ref
-                            self.subsequent_mets.append(sub_mets)
+                            self.represent_mets[rep] = file_ref
                         else:
                             self.file_refs.append(file_ref)
                     # element.clear()
@@ -304,7 +303,7 @@ class ValidationProfile():
             messages+=result.messages
             if result.status == MetadataStatus.NOTVALID:
                 status = MetadataStatus.NOTVALID
-        return status != MetadataStatus.NOTVALID, MetadataChecks(status=status, messages=messages)
+        return status == MetadataStatus.VALID, MetadataChecks(status=status, messages=messages)
 
     def get_details(self):
         """Return the valiation profile details."""
@@ -329,17 +328,35 @@ def validate_ip(to_validate):
     results = validator.validate_mets(mets_path)
     schema_results['root'] = results
     package_files['root'] = validator.file_refs
-    for mets in validator.subsequent_mets:
-        sub_validator = MetsValidator(mets[1].path)
-        schema_results[mets[0]] = sub_validator.validate_mets(os.path.join(to_validate,
-                                                                           mets[1].path))
-        package_files[mets[0]] = sub_validator.file_refs
+    for key, file_ref in validator.represent_mets.items():
+        rep_validator = MetsValidator(file_ref.path)
+        schema_results[key] = rep_validator.validate_mets(os.path.join(to_validate,
+                                                                       file_ref.path))
+        package_files[key] = rep_validator.file_refs
     profile = ValidationProfile()
     schematron_results['root'] = profile.validate(mets_path)
-    for _, result in schema_results.items():
-        if result[0]:
-            for mets in validator.subsequent_mets:
-                mets_path = mets[1].path
-                schematron_results[mets[0]] = profile.validate(os.path.join(to_validate, mets_path),
-                                                               False)
-    return profile.get_details(), MetadataResults(results[1], schematron_results)
+    all_schm_valid = True
+    all_schm_mssg = []
+    all_schmtrn_valid = True
+    all_schmtrn_mssg = []
+    for key, (schema_valid, results) in schema_results.items():
+        all_schm_mssg+=results.messages
+        if schema_valid:
+            if key == 'root':
+                schematron_valid, schematron_result = schematron_results['root']
+            else:
+                mets_ref = validator.represent_mets[key]
+                schematron_valid, schematron_result = profile.validate(os.path.join(to_validate,
+                                                                                 mets_ref.path),
+                                                                      False)
+            if not schematron_valid:
+                all_schmtrn_valid = False
+            all_schmtrn_mssg+=schematron_result.messages
+        else:
+            all_schm_valid = False
+            all_schmtrn_valid = False
+
+    return profile.get_details(), MetadataResults(MetadataChecks(all_schm_valid,
+                                                                 all_schm_mssg),
+                                                  MetadataChecks(all_schmtrn_valid,
+                                                                 all_schmtrn_mssg))

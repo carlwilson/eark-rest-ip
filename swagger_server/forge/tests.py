@@ -25,25 +25,65 @@
 """
 Factory methods for validation testing classes.
 """
-from swagger_server.forge import structure
+from functools import total_ordering
 
+from swagger_server.models import (
+    Severity,
+    TestResult
+)
 
-class Structure():
-    """
-    Generate structure validation results from testable sources.
-    """
-    @classmethod
-    def from_directory(cls, to_test):
-        """Returns a structure test result from an information package directory root."""
-        structure_tester = structure.PackageStructTests(to_test)
-        return structure_tester.get_test_results()
+def compare_result_lists(tests_a, tests_b):
+    """Return true if the two lists have the same number of errors in them."""
+    try:
+        errs_only_a = _errs_only(tests_a)
+        errs_only_b = _errs_only(tests_b)
+        if len(errs_only_a) != len(errs_only_b):
+            return False
+        for error in errs_only_a:
+            if not error in errs_only_b:
+                return False
+            errs_only_b.remove(error)
+    except ValueError:
+        return False
+    return True
 
-    @classmethod
-    def from_archive(cls, to_test):
-        """Returns a structure test result from an information package archive (zip or tar)."""
-        pass
+@total_ordering
+class ShortResult():
+    """Short result that cares not for location or message."""
+    def __init__(self, test_result):
+        self._rule_id = test_result.rule_id.upper()
+        self._severity = test_result.severity.upper()
 
-    @classmethod
-    def from_manifest(cls, to_test):
-        """Returns a structure test result from a maninfest instance."""
-        pass
+    @property
+    def rule_id(self):
+        """Return the rule_id."""
+        return self._rule_id
+
+    @property
+    def severity(self):
+        """Return the severity."""
+        return self._severity
+
+    def __eq__(self, other):
+        if not isinstance(other, ShortResult) and not isinstance(other, TestResult):
+            return False
+        return (self._rule_id, self._severity) == (other._rule_id, other._severity)
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __lt__(self, other):
+        return (self._rule_id, self._severity) < (other._rule_id, other._severity)
+
+    def __hash__(self):
+        return hash((self._rule_id, self._severity))
+
+    def __repr__(self):
+        return "%s %s" % (self.rule_id, self.severity)
+
+def _errs_only(to_strip):
+    errs_only = []
+    for test in to_strip:
+        if test.severity == Severity.ERROR:
+            errs_only.append(ShortResult(test))
+    return errs_only

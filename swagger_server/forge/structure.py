@@ -190,10 +190,11 @@ def severity_from_id(requirement_id):
         return Severity.WARN
     return Severity.INFO
 
-def test_result_from_id(requirement_id, location):
-    """Return a TestResult instance created from the requirment ID and location."""
+def test_result_from_id(requirement_id, location, message=None):
     req = REQUIREMENTS[requirement_id]
-    return TestResult(req['id'], location, req['message'], severity_from_level(req['level']))
+    test_msg = message if message else req['message']
+    """Return a TestResult instance created from the requirment ID and location."""
+    return TestResult(req['id'], location, test_msg, severity_from_level(req['level']))
 
 def _mets_tests(path, filename):
     if filename.casefold() != filename.casefold():
@@ -354,8 +355,10 @@ def _folders_and_files(dir_to_scan):
     return folders, files
 
 def get_multi_root_results(name):
-    results = [ test_result_from_id(4, name) ]
-    return StructResults(StructStatus.NOTWELLFORMED, results)
+    return StructResults(StructStatus.NOTWELLFORMED, [ test_result_from_id(1, name) ])
+
+def get_bad_path_results(path):
+    return StructResults(StructStatus.NOTWELLFORMED, [ test_result_from_id(1, path) ])
 
 def validate(to_validate, is_archive=False):
     struct_tests = PackageStructTests(to_validate, is_archive).get_test_results()

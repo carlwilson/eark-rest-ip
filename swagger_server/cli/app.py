@@ -31,7 +31,6 @@ import json
 import os.path
 import sys
 
-import swagger_server.cli.testcases as TC
 import swagger_server.cli.java_runner as JR
 import swagger_server.forge.packages as PKG
 from swagger_server.models import ValidationReport
@@ -64,11 +63,6 @@ PARSER = argparse.ArgumentParser(description=defaults['description'], epilog=def
 def parse_command_line():
     """Parse command line arguments."""
     # Add arguments
-    PARSER.add_argument('--testcase', '-t',
-                        action="store_true",
-                        dest="testCase",
-                        default=False,
-                        help="Treat [FILE]s as XML test cases and drive validation from those.")
     PARSER.add_argument('--recurse', '-r',
                         action="store_true",
                         dest="inputRecursiveFlag",
@@ -110,7 +104,7 @@ def main():
     # If no target files or folders specified then print usage and exit
     if not args.files:
         PARSER.print_help()
-    _exit = _process_test_cases(args) if args.testCase else _process_ips(args)
+    _exit = _process_ips(args)
     print('Exiting with {}'.format(_exit))
     sys.exit(_exit)
 
@@ -119,7 +113,7 @@ def _process_ips(args):
     _exit = 0
     for file_arg in args.files:
         # Get the package root and find out if this is something we can validate
-        ret_stat, _ = _process_ip(file_arg, not args.structureFlag)
+        ret_stat, _ = process_ip(file_arg, not args.structureFlag)
         # if ret_stat > 0 then this is somethign we can't handle
         if ret_stat > 0:
             sys.stderr.write(EXIT_CODES[ret_stat].format(file_arg))
@@ -128,74 +122,20 @@ def _process_ips(args):
             continue
     return _exit
 
-def _process_ip(info_pack, metadata):
+def process_ip(info_pack, metadata):
     print('')
     print('INFOPACK: {}'.format(info_pack))
-    java_ret_code, java_report = _java_validate_ip(info_pack)
-    py_ret_code, py_report = _python_valid_ip(info_pack, metadata)
-    return py_ret_code, py_report
+    exit_code, java_report, stderr = JR.validate_ip(info_pack)
+    print('Java exit code: ', exit_code)
+    print('Java report: ', java_report)
+    exit_code, py_report = _python_valid_ip(info_pack, metadata)
+    print('Python exit code: ', exit_code)
+    print('Python report: ', py_report)
+    return exit_code, py_report
 
 def _python_valid_ip(info_pack, metadata):
-    print('Python Results:')
-    try:
-        validator = PKG.PackageValidator(info_pack, metadata)
-        print(validator.validation_report)
-        print('')
-        return 0, validator.validation_report
-    except FileNotFoundError:
-        return 1, info_pack
-    except ValueError:
-        return 2, info_pack
-    return -1, info_pack
-
-def _java_validate_ip(info_pack):
-    ret_code, file_name, stderr = JR.java_runner(info_pack)
-    print('Java Results:')
-    print('   ret: {}, stdout: {}'.format(ret_code, file_name))
-    validation_report = None
-    if ret_code == 0:
-        with open(file_name, 'r', encoding="utf-8") as _f:
-            contents = _f.read()
-        os.remove(file_name)
-        validation_report = ValidationReport(**json.loads(contents))
-        print(validation_report)
-    else:
-        print('  ERROR =========')
-        print(stderr)
-    print('')
-    return ret_code, validation_report
-
-def _process_test_cases(args):
-    # Iterate the file arguments
-    _exit = 0
-    for file_arg in args.files:
-        # Get the package root and find out if this is something we can validate
-        ret_stat, path = _process_test_case(file_arg)
-        # if ret_stat > 0 then this is somethign we can't handle
-        if ret_stat > 0:
-            sys.stderr.write(EXIT_CODES[ret_stat].format(path))
-            sys.stderr.write(os.linesep)
-            _exit = ret_stat
-            continue
-    return _exit
-
-def _process_test_case(case_path):
-    test_case = None
-    try:
-        test_case = TC.TestCase.from_path(case_path)
-    except FileNotFoundError:
-        return 1, case_path
-    except ValueError:
-        return 3, case_path
-    print('')
-    print('TEST CASE: {}'.format(test_case))
-    for rule in test_case.rules:
-        print('    RULE: {}'.format(rule))
-        for package in rule.packages:
-            print('        PACKAGE: {}'.format(package))
-            ret_stat, validation_report = _process_ip(package.resolve_path(case_path),
-                                                      metadata= (not test_case.is_struct))
-    return 0, case_path
+    validator = PKG.PackageValidator(info_pack, metadata)
+    return 0, validator.validation_report
 
 
 # def _test_case_schema_checks():

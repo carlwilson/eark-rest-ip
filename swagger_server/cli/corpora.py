@@ -38,8 +38,9 @@ import io
 from git import Repo
 from jinja2 import Environment, PackageLoader
 
+import swagger_server.forge.tests as TEST
 from swagger_server.cli.testcases import TestCase, DEFAULT_NAME, GitTestCase
-from swagger_server.cli.app import _process_test_case, EXIT_CODES
+from swagger_server.cli.app import EXIT_CODES, process_ip
 from swagger_server.forge.specification import SPECIFICATIONS
 __version__ = "0.1.0"
 
@@ -279,7 +280,9 @@ class Corpora():
             # Return the test case and it's path
             _tc = TestCase.from_xml_string(test_case_blob.data_stream.read())
             if not _tc.valid:
-                return None, 'Test case XML failed schema validation for {}. \nSchema validation error: {}'.format(str(path), _tc.description)
+                return None, 'Test case XML failed schema validation for ' + \
+                             '{}. \nSchema validation error: {}'.format(str(path),
+                                                                        _tc.description)
             return _tc, str(path)
         except ValueError:
             # Bad test case XML.
@@ -292,7 +295,8 @@ class Corpora():
             # Return the test case and it's path
             _tc = TestCase.from_xml_file(path)
             if not _tc.valid:
-                return None, 'Test case XML failed schema validation for {}. \nSchema validation error: {}'.format(str(path), _tc.description)
+                return None, 'Test case XML failed schema validation for ' + \
+                             '{}. \nSchema validation error: {}'.format(str(path), _tc.description)
             return _tc, str(path)
         except ValueError:
             # Bad test case XML.
@@ -332,7 +336,7 @@ def app_html(root, specifications, corpora):
     """Write an HTML file home page."""
     template = _init_template('home.html')
     _mkdirs(root)
-    with open(os.path.join(root, 'index.html'), 'w') as filehand:
+    with open(os.path.join(root, 'index.html'), 'w', encoding='utf-8') as filehand:
         filehand.write(template.render(
             specifications=specifications,
             corpora=corpora
@@ -342,7 +346,7 @@ def skipped_html(root, skipped):
     """Write an HTML file for skipped branches."""
     template = _init_template('skipped.html')
     _mkdirs(root)
-    with open(os.path.join(root, 'index.html'), 'w') as filehand:
+    with open(os.path.join(root, 'index.html'), 'w', encoding='utf-8') as filehand:
         filehand.write(template.render(
             skipped=skipped
         ))
@@ -353,7 +357,7 @@ def corpus_html(root, corpus, specification):
         return
     template = _init_template('corpus.html')
     _mkdirs(root)
-    with open(os.path.join(root, 'index.html'), 'w') as filehand:
+    with open(os.path.join(root, 'index.html'), 'w', encoding='utf-8') as filehand:
         filehand.write(template.render(
             corpus = corpus,
             specification = specification,
@@ -372,7 +376,7 @@ def case_html(root, case):
             if package.name in packages.keys():
                 package.exists = True
             package_html(out_dir, case, rule, package, packages.get(package.name, None))
-    with open(os.path.join(out_dir, 'index.html'), 'w') as filehand:
+    with open(os.path.join(out_dir, 'index.html'), 'w', encoding='utf-8') as filehand:
         filehand.write(template.render(
             case = case,
             packages = len(packages),
@@ -383,9 +387,9 @@ def package_html(root, case, rule, package, zip):
     template = _init_template('package.html')
     out_dir = os.path.join(root, package.name)
     _mkdirs(out_dir)
-    if (zip):
+    if zip:
         zip.writetofile(os.path.join(out_dir, '{}.zip'.format(package.name)))
-    with open(os.path.join(out_dir, 'index.html'), 'w') as filehand:
+    with open(os.path.join(out_dir, 'index.html'), 'w', encoding='utf-8') as filehand:
         filehand.write(template.render(
             case = case,
             rule = rule,
@@ -419,31 +423,32 @@ def _get_test_cases(root):
 # Create PARSER
 PARSER = argparse.ArgumentParser(description=defaults['description'], epilog=defaults['epilog'])
 
-class InMemoryZip(object):
+class InMemoryZip():
+    """In memory zip for quick package assembly."""
     def __init__(self):
         # Create the in-memory file-like object
         self.in_memory_zip = io.BytesIO()
 
     def size(self):
+        ret_val = 0
         try:
-            zf = zipfile.ZipFile(self.in_memory_zip, "r", zipfile.ZIP_DEFLATED, False)
+            with zipfile.ZipFile(self.in_memory_zip, "r", zipfile.ZIP_DEFLATED, False) as _zf:
+                ret_val = len(_zf.namelist())
         except zipfile.BadZipFile:
-            return 0
-        return len(zf.namelist())
+            return ret_val
+        return ret_val
 
     def append(self, filename_in_zip, file_contents):
         '''Appends a file with name filename_in_zip and contents of
         file_contents to the in-memory zip.'''
         # Get a handle to the in-memory zip in append mode
-        zf = zipfile.ZipFile(self.in_memory_zip, "a", zipfile.ZIP_DEFLATED, False)
-
-        # Write the file to the in-memory zip
-        zf.writestr(filename_in_zip, file_contents)
-
-        # Mark the files as having been created on Windows so that
-        # Unix permissions are not inferred as 0000
-        for zfile in zf.filelist:
-            zfile.create_system = 0
+        with zipfile.ZipFile(self.in_memory_zip, "a", zipfile.ZIP_DEFLATED, False) as _zf:
+            # Write the file to the in-memory zip
+            _zf.writestr(filename_in_zip, file_contents)
+            # Mark the files as having been created on Windows so that
+            # Unix permissions are not inferred as 0000
+            for zfile in _zf.filelist:
+                zfile.create_system = 0
 
         return self
 
@@ -509,6 +514,37 @@ def main():
     # app_html('results', SPECIFICATIONS, git_corpus.corpora)
     # skipped_html(os.path.join('results', 'skipped'), git_corpus.skipped)
     sys.exit(_exit)
+
+def _compare_results(report_a, report_b):
+    structs_equiv = TEST.compare_result_lists(report_a.structure.messages,
+                                              report_b.structure.messages)
+    print('COMPARING Structure Results: %s' % (structs_equiv))
+    schm_equiv = TEST.compare_result_lists(report_a.metadata.schema_results.messages,
+                                           report_b.metadata.schema_results.messages)
+    print('COMPARING Schema Results: %s' % (schm_equiv))
+    schmtrn_equiv = TEST.compare_result_lists(report_a.metadata.schematron_results.messages,
+                                              report_b.metadata.schematron_results.messages)
+    print('COMPARING Schematron Results: %s' % (schmtrn_equiv))
+    return structs_equiv and schm_equiv and schmtrn_equiv
+
+def _process_test_case(case_path):
+    test_case = None
+    try:
+        test_case = TestCase.from_path(case_path)
+    except FileNotFoundError:
+        return 1, case_path
+    except ValueError:
+        return 3, case_path
+    print('')
+    print('TEST CASE: {}'.format(test_case))
+    for rule in test_case.rules:
+        print('    RULE: {}'.format(rule))
+        for package in rule.packages:
+            print('        PACKAGE: {}'.format(package))
+            ret_stat, validation_report = process_ip(package.resolve_path(case_path),
+                                                      metadata= (not test_case.is_struct))
+    return 0, case_path
+
 
 if __name__ == "__main__":
     main()
